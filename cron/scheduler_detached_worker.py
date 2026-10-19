@@ -10,9 +10,62 @@ from __future__ import annotations
 
 import concurrent.futures
 import contextlib
+import os
+import signal
 import subprocess
 import threading
 from typing import Optional
+
+
+_WORKER_TERMINATED_ERROR = (
+    "Worker terminated by SIGTERM (gateway teardown/update/stop); "
+    "side effects may be partial."
+)
+
+
+def install_execution_signal_handlers(execution_id: str) -> dict[int, object]:
+    """Terminalize an owned execution before the process obeys TERM/INT.
+
+    Signal handlers can only be installed by the main thread. External cron workers
+    always run there; the guard also covers synchronous ``hermes cron run`` owners
+    without changing gateway ticker threads' process-wide signal policy.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return {}
+
+    handled = (signal.SIGTERM, signal.SIGINT)
+    previous = {signum: signal.getsignal(signum) for signum in handled}
+
+    def _terminalize_and_reraise(signum, _frame) -> None:
+        for handled_signum in handled:
+            signal.signal(handled_signum, signal.SIG_DFL)
+        try:
+            from cron.executions import finish_execution
+
+            finish_execution(
+                execution_id,
+                success=False,
+                error=_WORKER_TERMINATED_ERROR,
+            )
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception(
+                "Cron worker failed to terminalize execution %s on signal %s",
+                execution_id,
+                signum,
+            )
+        os.kill(os.getpid(), signum)
+
+    for signum in handled:
+        signal.signal(signum, _terminalize_and_reraise)
+    return previous
+
+
+def restore_execution_signal_handlers(previous: dict[int, object]) -> None:
+    """Restore handlers after a normally completed main-thread execution."""
+    for signum, handler in previous.items():
+        signal.signal(signum, handler)
 
 
 def _close_late_session_db_result(future: concurrent.futures.Future) -> None:

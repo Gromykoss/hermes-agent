@@ -3322,6 +3322,11 @@ def _run_one_job_body(
     _fire_scope_tokens = None
     _terminal_scope_token = None
     _identity_token = None
+    _signal_handlers = {}
+    from cron.scheduler_detached_worker import (
+        install_execution_signal_handlers,
+        restore_execution_signal_handlers,
+    )
     try:
         # get_secret() fails closed outside a scope; the ticker thread has none. Delivery adapters
         # resolve credentials, so the scope must span delivery too (reset in the outer finally) —
@@ -3345,6 +3350,7 @@ def _run_one_job_body(
         # Detached workers transition to running while adopting; in-process paths must win the
         # claimed->running CAS here before any user script or agent side effect may begin.
         # The identity plugins read via ctx.current_cron_execution() is bound only on that win.
+        _signal_handlers = install_execution_signal_handlers(execution_id)
         _identity_token = _start_owned_run(job, execution_id)
         if _identity_token is None:
             logger.warning("Cron job %s lost execution ownership before start; skipping", job["id"])
@@ -3515,6 +3521,7 @@ def _run_one_job_body(
             from tools.terminal_scope import reset_terminal_scope
 
             reset_terminal_scope(_terminal_scope_token)
+        restore_execution_signal_handlers(_signal_handlers)
 
 
 def _wait_for_external_cron_worker_body(
@@ -3923,12 +3930,19 @@ def _run_external_worker_payload(payload_path: Path, ack_path: Path) -> bool:
         GatewayStartupMixin._register_config_hooks(
             "Cron external worker: config hook registration failed", level=logging.WARNING)
         with use_cron_store(profile_home):
+            from cron.scheduler_detached_worker import (
+                install_execution_signal_handlers,
+                restore_execution_signal_handlers,
+            )
+
+            signal_handlers = install_execution_signal_handlers(execution_id)
             if adopt_claimed_execution(execution_id) is None:
                 logger.error(
                     "Cron external worker refused execution %s: durable ownership "
                     "could not be established",
                     execution_id,
                 )
+                restore_execution_signal_handlers(signal_handlers)
                 return False
             try:
                 ack_path.parent.mkdir(parents=True, exist_ok=True)
@@ -3969,6 +3983,7 @@ def _run_external_worker_payload(payload_path: Path, ack_path: Path) -> bool:
                     os.environ.pop("_HERMES_CRON_EXTERNAL_WORKER", None)
                 else:
                     os.environ["_HERMES_CRON_EXTERNAL_WORKER"] = old_external_execution
+                restore_execution_signal_handlers(signal_handlers)
     finally:
         if secret_token is not None:
             reset_secret_scope(secret_token)

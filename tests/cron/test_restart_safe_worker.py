@@ -16,6 +16,8 @@ from unittest.mock import Mock
 
 import pytest
 
+from tests.waiting import wait_until
+
 
 @pytest.fixture
 def execution_ledger(tmp_path, monkeypatch):
@@ -75,6 +77,79 @@ def test_genuine_external_worker_crash_is_recovered_unknown(
     assert execution_ledger.recover_interrupted_executions() == 1
     recovered = execution_ledger.latest_execution("job-crash")
     assert recovered["status"] == "unknown"
+
+
+_SIGNAL_OWNER_PROBE = """
+import json, signal, sys
+from pathlib import Path
+
+import cron.executions as executions
+from cron.scheduler_detached_worker import install_execution_signal_handlers
+
+ledger, ready, mode, execution_id = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
+executions.EXECUTIONS_FILE = ledger
+if mode == "adopt":
+    assert executions.adopt_claimed_execution(execution_id) is not None
+else:
+    execution_id = executions.create_execution("job-cli", source="direct")["id"]
+    assert executions.mark_execution_running(execution_id) is not None
+install_execution_signal_handlers(execution_id)
+ready.write_text(json.dumps({"execution_id": execution_id}), encoding="utf-8")
+while True:
+    signal.pause()
+"""
+
+
+@pytest.mark.platforms("posix")
+def test_sigterm_mid_run_records_durable_external_worker_failure(
+    execution_ledger, tmp_path
+):
+    record = execution_ledger.create_execution("job-term", source="builtin")
+    assert execution_ledger.mark_execution_handoff_pending(record["id"]) is not None
+    ready = tmp_path / "external-ready.json"
+    child = subprocess.Popen([
+        sys.executable, "-c", _SIGNAL_OWNER_PROBE,
+        str(execution_ledger.EXECUTIONS_FILE), str(ready), "adopt", record["id"],
+    ])
+    try:
+        wait_until(ready.exists, what="external worker signal handler installation")
+        child.send_signal(signal.SIGTERM)
+        assert child.wait(timeout=10) == -signal.SIGTERM
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=10)
+
+    finished = execution_ledger.get_execution(record["id"])
+    assert finished["status"] == "failed"
+    assert finished["error"] == (
+        "Worker terminated by SIGTERM (gateway teardown/update/stop); "
+        "side effects may be partial."
+    )
+    assert execution_ledger.recover_interrupted_executions() == 0
+
+
+@pytest.mark.platforms("posix")
+def test_cli_owner_sigterm_terminalizes_before_exit(execution_ledger, tmp_path):
+    ready = tmp_path / "cli-ready.json"
+    child = subprocess.Popen([
+        sys.executable, "-c", _SIGNAL_OWNER_PROBE,
+        str(execution_ledger.EXECUTIONS_FILE), str(ready), "cli", "unused",
+    ])
+    try:
+        wait_until(ready.exists, what="CLI owner signal handler installation")
+        execution_id = json.loads(ready.read_text(encoding="utf-8"))["execution_id"]
+        child.send_signal(signal.SIGTERM)
+        assert child.wait(timeout=10) == -signal.SIGTERM
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=10)
+
+    finished = execution_ledger.get_execution(execution_id)
+    assert finished["status"] == "failed"
+    assert "side effects may be partial" in finished["error"]
+    assert execution_ledger.recover_interrupted_executions() == 0
 
 
 @pytest.mark.platforms("linux")
