@@ -412,6 +412,32 @@ class SessionRecoveryMixin:
                     "self-healing peer refresh on the next turn",
                     create_kwargs.get("session_id"), session_key, during, e),
             )
+            if end_reason == "session_reset" and end_session_id:
+                self._seed_reset_summary(session_key, end_session_id, create_kwargs["session_id"])
+
+    def _seed_reset_summary(self, session_key: str, parent_session_id: str, session_id: str) -> None:
+        """Seed a reset child with its parent's latest compaction handoff, when one exists."""
+        db = self._db_for_key(session_key)
+        try:
+            messages = db.get_messages(
+                parent_session_id, include_inactive=True, include_ancestors=True,
+            )
+            summary = next(
+                (message for message in reversed(messages) if message.get("_compressed_summary")),
+                None,
+            )
+            if summary is not None:
+                db.append_message(
+                    session_id,
+                    role=summary.get("role", "user"),
+                    content=summary.get("content"),
+                    _compressed_summary=True,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Failed to seed reset session %s from parent %s: %s",
+                session_id, parent_session_id, exc, exc_info=True,
+            )
 
     @staticmethod
     def _session_create_kwargs(
