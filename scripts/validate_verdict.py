@@ -33,6 +33,8 @@ def parse_verdict(path: Path) -> Verdict:
         match = FIELD_RE.match(line)
         if match:
             current = match[1]
+            if current in fields:
+                raise ValueError(f"duplicate field: {current}")
             fields[current] = match[2].strip()
         elif current == "evidence" and line.strip():
             fields[current] = "\n".join(filter(None, (fields[current], line.strip())))
@@ -53,28 +55,43 @@ def validate_paths(paths: list[Path]) -> list[str]:
             verdicts.append(parse_verdict(path))
         except (OSError, UnicodeError, ValueError) as exc:
             errors.append(f"{path}: {exc}")
-    seen_ids: dict[str, Path] = {}
-    active: dict[tuple[str, str], Verdict] = {}
+    seen_ids: dict[str, Verdict] = {}
     for verdict in verdicts:
         review_id = verdict.fields["review_id"]
         if review_id in seen_ids:
             errors.append(
                 f"{verdict.path}: duplicate review_id {review_id} "
-                f"(already used by {seen_ids[review_id]})"
+                f"(already used by {seen_ids[review_id].path})"
             )
             continue
-        seen_ids[review_id] = verdict.path
+        seen_ids[review_id] = verdict
+
+    superseded: set[str] = set()
+    for verdict in seen_ids.values():
+        target_id = verdict.fields.get("supersedes")
+        if not target_id:
+            continue
+        target = seen_ids.get(target_id)
+        if target is None:
+            errors.append(f"{verdict.path}: supersedes unknown review_id {target_id}")
+            continue
         key = (verdict.fields["card"], verdict.fields["head_sha"].lower())
-        previous = active.get(key)
-        if previous is not None:
-            supersedes = verdict.fields.get("supersedes")
-            if supersedes != previous.fields["review_id"]:
-                errors.append(
-                    f"{verdict.path}: active verdict already exists for card+head; "
-                    f"supersedes must be {previous.fields['review_id']}"
-                )
-                continue
-        active[key] = verdict
+        target_key = (target.fields["card"], target.fields["head_sha"].lower())
+        if key != target_key:
+            errors.append(f"{verdict.path}: supersedes must reference the same card+head")
+            continue
+        superseded.add(target_id)
+
+    active: dict[tuple[str, str], list[Verdict]] = {}
+    for review_id, verdict in seen_ids.items():
+        if review_id in superseded or verdict.status == "REVOKE":
+            continue
+        key = (verdict.fields["card"], verdict.fields["head_sha"].lower())
+        active.setdefault(key, []).append(verdict)
+    for verdicts_for_key in active.values():
+        if len(verdicts_for_key) > 1:
+            paths = ", ".join(str(verdict.path) for verdict in verdicts_for_key)
+            errors.append(f"{paths}: multiple active verdicts exist for card+head")
     return errors
 
 

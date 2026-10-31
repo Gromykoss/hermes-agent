@@ -2663,8 +2663,9 @@ def complete_task(
     ``created_cards`` are verified first — a phantom id raises
     :class:`HallucinatedCardsError` after an auditable event; afterwards the
     prose is scanned for unresolvable ``t_<hex>`` refs (advisory event only).
-    Every completion needs a non-empty ``result``. A real-adapter completion
-    contract additionally requires its suite/pass-count marker in that result.
+    Every non-review completion needs a non-empty ``result``. Human approval
+    from ``review`` is recorded with ``_REVIEW_APPROVED_NOTE``. A real-adapter
+    completion contract additionally requires its suite/pass-count marker.
     """
     now = int(time.time())
     # Cheap pre-check; re-checked inside the txn to close the parent-reopen race.

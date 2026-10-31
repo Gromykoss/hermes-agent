@@ -2119,7 +2119,14 @@ def _dispatch_lane_task(
         _count_spawn(claimed.assignee)
         return True
     except Exception as exc:
+        from hermes_cli.kanban_db_dispatch_spawn_guard import SpawnLeaseRefused
         from tools.process_registry import RestartSafeScopeUnavailable
+
+        # The reservation belongs to a still-live run. Refusing this dispatch
+        # must not release that run's claim or consume its failure budget.
+        if isinstance(exc, SpawnLeaseRefused):
+            _kb._log.warning("kanban dispatcher: %s", exc)
+            return False
 
         # The host refused the spawn (no restart-safe scope): nothing about the
         # card ran, so it must not spend the card's retry budget (#114720).

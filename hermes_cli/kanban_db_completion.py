@@ -25,6 +25,11 @@ class RealAdapterEvidenceError(ValueError):
         )
 
 
+_REAL_ADAPTER_MARKER = re.compile(
+    r"(?im)^\s*real-adapter:\s+\S+(?:\s+\S+)*\s+([1-9]\d*)\s+passed\b[.!]?\s*$"
+)
+
+
 def gate_completion_evidence(
     conn: sqlite3.Connection,
     task_id: str,
@@ -37,9 +42,13 @@ def gate_completion_evidence(
     from hermes_cli.kanban_pr_acceptance import requires_real_adapter
 
     row = conn.execute(
-        "SELECT completion_contract FROM tasks WHERE id = ?", (task_id,),
+        "SELECT status, completion_contract FROM tasks WHERE id = ?", (task_id,),
     ).fetchone()
     if row is None:
+        return
+    # A human approval is itself the evidence. complete_task records the
+    # durable _REVIEW_APPROVED_NOTE on both the run and completion event.
+    if row["status"] == "review":
         return
     if not (result is not None and str(result).strip()):
         with kb.write_txn(conn):
@@ -48,8 +57,8 @@ def gate_completion_evidence(
                 "summary_preview": kb._first_line(summary, 200) or None,
             })
         raise EmptyCompletionError(task_id)
-    if requires_real_adapter(row["completion_contract"]) and not re.search(
-        r"(?m)^real-adapter:\s+\S+\s+\d+\s+passed\s*$", str(result), re.IGNORECASE,
+    if requires_real_adapter(row["completion_contract"]) and not _REAL_ADAPTER_MARKER.search(
+        str(result)
     ):
         with kb.write_txn(conn):
             kb._append_event(conn, task_id, "completion_blocked_real_adapter", {

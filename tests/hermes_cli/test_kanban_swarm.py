@@ -37,6 +37,7 @@ def test_create_swarm_builds_parallel_workers_verifier_and_synthesizer(tmp_path)
         assert verifier is not None
         assert synthesizer is not None
         assert root.status == "done"
+        assert root.result == "Swarm topology planned; root remains the shared blackboard."
         assert root.assignee == "orchestrator"
         assert [task.status for task in workers] == ["ready", "ready"]
         assert [task.assignee for task in workers] == ["researcher-a", "researcher-b"]
@@ -228,7 +229,7 @@ def test_swarm_verifier_and_synthesis_are_dependency_gated(tmp_path):
         kb.complete_task(
             conn,
             created.worker_ids[0],
-            summary="A done",
+            result="A done",
             metadata={"confidence": 0.8},
         )
         kb.recompute_ready(conn)
@@ -239,7 +240,7 @@ def test_swarm_verifier_and_synthesis_are_dependency_gated(tmp_path):
         assert verifier.status == "todo"
         assert synthesizer.status == "todo"
 
-        kb.complete_task(conn, created.worker_ids[1], summary="B done")
+        kb.complete_task(conn, created.worker_ids[1], result="B done")
         kb.recompute_ready(conn)
         verifier = kb.get_task(conn, created.verifier_id)
         synthesizer = kb.get_task(conn, created.synthesizer_id)
@@ -251,7 +252,7 @@ def test_swarm_verifier_and_synthesis_are_dependency_gated(tmp_path):
         kb.complete_task(
             conn,
             created.verifier_id,
-            summary="Verified both branches",
+            result="Verified both branches",
             metadata={"gate": "pass"},
         )
         kb.recompute_ready(conn)

@@ -6,6 +6,10 @@ import sqlite3
 import time
 
 
+class SpawnLeaseRefused(RuntimeError):
+    """A live run does not grant this dispatcher a fresh spawn reservation."""
+
+
 def call_spawn_fn(spawn_fn, task, workspace: str, board: str | None) -> int | None:
     """Pass ``board`` when supported while retaining older spawn callback signatures."""
     import inspect
@@ -37,7 +41,7 @@ def reserve_worker_spawn(conn: sqlite3.Connection, task) -> None:
         if (row is None or row["status"] != "running" or run_id is None
                 or row["current_run_id"] != int(run_id) or expires is None
                 or expires <= now or already_started is not None):
-            raise RuntimeError(
+            raise SpawnLeaseRefused(
                 f"spawn refused: task {task.id} does not own an unspent live run lease"
             )
         kb._append_event(
