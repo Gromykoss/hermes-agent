@@ -83,10 +83,11 @@ def _validate_findings(payload: dict) -> None:
             raise ValueError(f"findings[{index}].line must be an integer")
 
 
-# Form A (preferred): sha256:<64 hex> with optional parenthetical annotation.
-_SPEC_HASH_A_RE = re.compile(
-    r"sha256:[0-9a-fA-F]{64}(?:\s+\([^)]*\))?\Z"
-)
+# Form A (preferred): sha256:<64 hex> with optional single-line annotation
+# of balanced parens (any nesting depth), optionally followed by a
+# descriptive tail with balanced parens too (real canon corpus:
+# "(algo …); срез-пакет tar-sha256 …").
+_SPEC_HASH_A_RE = re.compile(r"sha256:[0-9a-fA-F]{64}\s.+\Z")
 # Form B (legacy): sha256:<non-empty single-line text>, ≤200 chars after prefix.
 _SPEC_HASH_PREFIX = "sha256:"
 _SPEC_HASH_B_MAX = 200
@@ -103,12 +104,35 @@ def _valid_spec_hash(value: object) -> bool:
         return False
     if _SPEC_HASH_BLOB_RE.match(text):
         return True
-    if _SPEC_HASH_A_RE.fullmatch(text):
-        return True
+    m = _SPEC_HASH_A_RE.fullmatch(text)
+    if m:
+        # Tail after the 64-hex head: must carry a real character, have
+        # balanced parens overall (unbalanced "(", ")" → rejected — covers
+        # nested parens of any depth AND the old flat-only regex), ≤500.
+        tail = text[len("sha256:") + 64:]
+        if not re.search(r"[^\s()]", tail) or len(tail) > 500:
+            return False
+        depth = 0
+        for ch in tail:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            if depth < 0:
+                return False
+        return depth == 0
     if text.startswith(_SPEC_HASH_PREFIX):
         rest = text[len(_SPEC_HASH_PREFIX):]
-        # Reject empty / whitespace-only after the prefix; cap legacy length.
-        return bool(rest.strip()) and len(rest) <= _SPEC_HASH_B_MAX
+        # Form A: plain 64-hex (no annotation) — canonical preferred form.
+        if re.fullmatch(r"[0-9a-fA-F]{64}", rest):
+            return True
+        # Form B / descriptive: reject empty / whitespace-only after the
+        # prefix; cap legacy length. (No hex-guard: per WP3 Form B is any
+        # non-empty single-line text; a near-64-hex string is accepted as
+        # legacy text — corpus has 0 such cases, spec and code agree.)
+        if not bool(re.search(r"[^\s()]", rest)) or len(rest) > _SPEC_HASH_B_MAX:
+            return False
+        return True
     return False
 
 
