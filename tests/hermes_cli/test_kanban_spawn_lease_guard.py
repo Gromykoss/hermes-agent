@@ -45,6 +45,9 @@ def test_dispatch_guard_refusal_preserves_live_claim_and_run(tmp_path, monkeypat
     import hermes_cli.kanban_db_dispatch_spawn_guard as guard
 
     monkeypatch.setattr(kbd, "_profile_exists_fn", lambda: None)
+    # Deterministic regardless of host memory state: a critical-pressure tick
+    # defers spawning entirely and would mask the lease-refusal path.
+    monkeypatch.setattr(kbd, "_memory_pressure_level", lambda: "unknown")
     monkeypatch.setattr(
         guard,
         "reserve_worker_spawn",
