@@ -84,8 +84,10 @@ def _validate_findings(payload: dict) -> None:
 
 
 # Form A (preferred): sha256:<64 hex> with optional parenthetical annotation.
+# Annotation: arbitrary non-empty single-line text inside parens; nested
+# parens allowed (real canon corpus uses e.g. "(blob ..., gate (...))").
 _SPEC_HASH_A_RE = re.compile(
-    r"sha256:[0-9a-fA-F]{64}(?:\s+\([^)]*\))?\Z"
+    r"sha256:[0-9a-fA-F]{64}(?:\s+\(([^()]|\([^()]*\))*\))?\Z"
 )
 # Form B (legacy): sha256:<non-empty single-line text>, ≤200 chars after prefix.
 _SPEC_HASH_PREFIX = "sha256:"
@@ -103,12 +105,26 @@ def _valid_spec_hash(value: object) -> bool:
         return False
     if _SPEC_HASH_BLOB_RE.match(text):
         return True
-    if _SPEC_HASH_A_RE.fullmatch(text):
-        return True
+    m = _SPEC_HASH_A_RE.fullmatch(text)
+    if m:
+        # Annotation (if present) must carry a real character: rejects "()",
+        # "(( ))", whitespace-only, and any newline smuggled into the parens.
+        tail = text[len("sha256:") + 64:]
+        if not tail:
+            return True  # plain sha256:<64 hex> without annotation
+        inner = tail.strip()[1:-1]  # strip the outer parens
+        return bool(re.search(r"[^\s()]", inner)) and "\n" not in inner
     if text.startswith(_SPEC_HASH_PREFIX):
         rest = text[len(_SPEC_HASH_PREFIX):]
         # Reject empty / whitespace-only after the prefix; cap legacy length.
-        return bool(rest.strip()) and len(rest) <= _SPEC_HASH_B_MAX
+        if not bool(re.search(r"[^\s()]", rest)) or len(rest) > _SPEC_HASH_B_MAX:
+            return False
+        # A 64-hex head with a junk tail ("()", "(( ))", trailing spaces) is
+        # NOT Form B: the tail itself must carry a real character.
+        m_hex = re.match(r"[0-9a-fA-F]{64}(.*)\Z", rest, re.DOTALL)
+        if m_hex and not re.search(r"[^\s()]", m_hex.group(1)):
+            return False
+        return True
     return False
 
 

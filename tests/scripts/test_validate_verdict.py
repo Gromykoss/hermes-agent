@@ -226,3 +226,40 @@ def test_json_canon_spec_hash_legacy_overlong_fails(tmp_path):
         extra={"spec_hash": "sha256:" + "x" * 201},
     )
     assert main([str(path)]) == 1
+
+
+# --- minors-P1 (директива: расширение регэкспа аннотации формы А) ---
+
+def test_spec_hash_annotation_nested_parens_pass(tmp_path):
+    """Вложенные скобки в аннотации разрешены (реальный корпус)."""
+    path = _write_json(
+        tmp_path / "one.md", "review-n1",
+        extra={"spec_hash": f"sha256:{'c' * 64} (blob abc (gate 7/7), canon x)"},
+    )
+    assert main([str(path)]) == 0
+
+
+def test_spec_hash_annotation_nested_double_pass(tmp_path):
+    path = _write_json(
+        tmp_path / "one.md", "review-n2",
+        extra={"spec_hash": f"sha256:{'c' * 64} ((a) (b))"},
+    )
+    assert main([str(path)]) == 0
+
+
+def test_spec_hash_annotation_empty_fails(tmp_path):
+    path = _write_json(tmp_path / "one.md", "review-n3", extra={"spec_hash": f"sha256:{'c' * 64} ()"})
+    assert main([str(path)]) == 1
+
+
+def test_spec_hash_annotation_whitespace_only_fails(tmp_path):
+    path = _write_json(tmp_path / "one.md", "review-n4", extra={"spec_hash": f"sha256:{'c' * 64} (( ))"})
+    assert main([str(path)]) == 1
+
+
+def test_spec_hash_annotation_multiline_fails(tmp_path):
+    path = _write_json(
+        tmp_path / "one.md", "review-n5",
+        extra={"spec_hash": f"sha256:{'c' * 64} (a\nb)"},
+    )
+    assert main([str(path)]) == 1
