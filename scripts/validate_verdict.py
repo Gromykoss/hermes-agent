@@ -83,6 +83,35 @@ def _validate_findings(payload: dict) -> None:
             raise ValueError(f"findings[{index}].line must be an integer")
 
 
+# Form A (preferred): sha256:<64 hex> with optional parenthetical annotation.
+_SPEC_HASH_A_RE = re.compile(
+    r"sha256:[0-9a-fA-F]{64}(?:\s+\([^)]*\))?\Z"
+)
+# Form B (legacy): sha256:<non-empty single-line text>, ≤200 chars after prefix.
+_SPEC_HASH_PREFIX = "sha256:"
+_SPEC_HASH_B_MAX = 200
+# Existing alternative: 40-hex blob SHA (optional trailing annotation after space).
+_SPEC_HASH_BLOB_RE = re.compile(r"[0-9a-fA-F]{40}(?:\s|\Z)")
+
+
+def _valid_spec_hash(value: object) -> bool:
+    """Accept Form A, Form B, or a 40-hex blob SHA; reject empty/multiline/unprefixed."""
+    if not isinstance(value, str):
+        return False
+    text = value.strip()
+    if not text or "\n" in text or "\r" in text:
+        return False
+    if _SPEC_HASH_BLOB_RE.match(text):
+        return True
+    if _SPEC_HASH_A_RE.fullmatch(text):
+        return True
+    if text.startswith(_SPEC_HASH_PREFIX):
+        rest = text[len(_SPEC_HASH_PREFIX):]
+        # Reject empty / whitespace-only after the prefix; cap legacy length.
+        return bool(rest.strip()) and len(rest) <= _SPEC_HASH_B_MAX
+    return False
+
+
 def _parse_json_verdict(path: Path, lines: list[str]) -> Verdict:
     closing = next(
         (i for i, line in enumerate(lines[1:], start=1) if line.strip() == "---"),
@@ -115,14 +144,11 @@ def _parse_json_verdict(path: Path, lines: list[str]) -> Verdict:
     _validate_findings(payload)
 
     spec_hash = payload.get("spec_hash")
-    if spec_hash is not None and not (
-        isinstance(spec_hash, str)
-        and (
-            re.match(r"sha256:[0-9a-fA-F]{64}", spec_hash.strip())
-            or re.match(r"[0-9a-fA-F]{40}(?:\s|\Z)", spec_hash.strip())
+    if spec_hash is not None and not _valid_spec_hash(spec_hash):
+        raise ValueError(
+            "spec_hash must be sha256:<64 hex> [optional (annotation)], "
+            "sha256:<legacy text ≤200>, or a 40-hex blob SHA"
         )
-    ):
-        raise ValueError("spec_hash must start with sha256:<64 hex> or a 40-hex blob SHA")
 
     range_ = payload.get("reviewed_range")
     if isinstance(range_, dict):

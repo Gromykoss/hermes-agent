@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from scripts.validate_verdict import main
 
 
@@ -176,5 +178,51 @@ def test_json_canon_bad_finding_fails(tmp_path):
     path = _write_json(
         tmp_path / "one.md", "review-1", status="issues",
         findings=[{"severity": "nit", "file": "x.py", "line": 1}],
+    )
+    assert main([str(path)]) == 1
+
+
+# --- fix-round (RC 68d2e27): spec_hash — обе документированные формы ---
+
+def test_json_canon_spec_hash_hex_with_annotation_passes(tmp_path):
+    """Форма А (предпочтительна): sha256:<64 hex> + аннотация в скобках."""
+    path = _write_json(
+        tmp_path / "one.md", "review-a1",
+        extra={"spec_hash": f"sha256:{'c' * 64} (fleet-reviews blob)"},
+    )
+    assert main([str(path)]) == 0
+
+
+def test_json_canon_spec_hash_legacy_descriptive_passes(tmp_path):
+    """Форма Б (легаси): sha256:<непустой однострочный текст>."""
+    path = _write_json(
+        tmp_path / "one.md", "review-b1",
+        extra={"spec_hash": "sha256:spec-fleet-reviews-v1.3 WP3 (описание формы)"},
+    )
+    assert main([str(path)]) == 0
+
+
+def test_json_canon_spec_hash_empty_after_prefix_fails(tmp_path):
+    path = _write_json(tmp_path / "one.md", "review-x1", extra={"spec_hash": "sha256:"})
+    assert main([str(path)]) == 1
+
+
+def test_json_canon_spec_hash_multiline_fails(tmp_path):
+    path = _write_json(
+        tmp_path / "one.md", "review-x2",
+        extra={"spec_hash": "sha256:line one\nline two"},
+    )
+    assert main([str(path)]) == 1
+
+
+def test_json_canon_spec_hash_without_prefix_fails(tmp_path):
+    path = _write_json(tmp_path / "one.md", "review-x3", extra={"spec_hash": "просто описание"})
+    assert main([str(path)]) == 1
+
+
+def test_json_canon_spec_hash_legacy_overlong_fails(tmp_path):
+    path = _write_json(
+        tmp_path / "one.md", "review-x4",
+        extra={"spec_hash": "sha256:" + "x" * 201},
     )
     assert main([str(path)]) == 1
