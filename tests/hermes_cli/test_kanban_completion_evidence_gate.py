@@ -65,3 +65,42 @@ def test_real_adapter_marker_rejects_zero_passed(conn):
             conn, task_id, result="real-adapter: gateway-e2e 0 passed",
             expected_run_id=run_id,
         )
+
+
+def test_real_adapter_marker_rejects_newline_glued_foreign_count(conn):
+    """A \\n inside the marker value must not glue a foreign pass-count on."""
+    task_id, run_id = _claimed(conn, contract="require_real_adapter: true")
+    with pytest.raises(kb.RealAdapterEvidenceError):
+        kb.complete_task(
+            conn, task_id,
+            result="real-adapter: suite 0 passed\nunrelated: 12 passed",
+            expected_run_id=run_id,
+        )
+    with pytest.raises(kb.RealAdapterEvidenceError):
+        kb.complete_task(
+            conn, task_id,
+            result="real-adapter: suite skipped\n12 passed",
+            expected_run_id=run_id,
+        )
+    # The count must belong to the same suite on the same line.
+    assert kb.complete_task(
+        conn, task_id,
+        result="unrelated: 0 passed\nreal-adapter: gateway-e2e 12 passed",
+        expected_run_id=run_id,
+    )
+
+
+def test_review_close_without_real_adapter_marker_is_refused(conn):
+    """Variant б (owner decision 2026-11-01): review exempts only the
+    empty-result rule; the real-adapter marker is required for every done."""
+    task_id, _ = _claimed(conn, contract="require_real_adapter: true")
+    assert kb.request_review(conn, task_id, summary="please look") is True
+    with pytest.raises(kb.RealAdapterEvidenceError):
+        kb.complete_task(conn, task_id)
+    with pytest.raises(kb.RealAdapterEvidenceError):
+        kb.complete_task(conn, task_id, result="visual inspection passed")
+    assert kb.get_task(conn, task_id).status == "review"
+    assert kb.complete_task(
+        conn, task_id, result="real-adapter: gateway-e2e 12 passed",
+    ) is True
+    assert kb.get_task(conn, task_id).status == "done"

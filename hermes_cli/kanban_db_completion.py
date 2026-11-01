@@ -26,7 +26,11 @@ class RealAdapterEvidenceError(ValueError):
 
 
 _REAL_ADAPTER_MARKER = re.compile(
-    r"(?im)^\s*real-adapter:\s+\S+(?:\s+\S+)*\s+([1-9]\d*)\s+passed\b[.!]?\s*$"
+    # Single-line marker only: every whitespace class excludes \n so the
+    # match cannot span lines and glue a foreign "N passed" onto the suite.
+    r"(?im)^[^\S\n]*real-adapter:[^\S\n]+"
+    r"(?P<suite>\S+(?:[^\S\n]+\S+)*)"
+    r"[^\S\n]+(?P<count>[1-9]\d*)[^\S\n]+passed\b[.!]?[^\S\n]*$"
 )
 
 
@@ -46,7 +50,18 @@ def gate_completion_evidence(
     ).fetchone()
     if row is None:
         return
-    # A human approval is itself the evidence. complete_task records the
+    # Real-adapter evidence is required for EVERY done transition, including
+    # a human approval from review (owner decision 2026-11-01, variant б):
+    # review exempts only the empty-result rule, never the marker.
+    if requires_real_adapter(row["completion_contract"]) and not (
+        result is not None and _REAL_ADAPTER_MARKER.search(str(result))
+    ):
+        with kb.write_txn(conn):
+            kb._append_event(conn, task_id, "completion_blocked_real_adapter", {
+                "result_preview": kb._first_line(result, 200) or None,
+            })
+        raise RealAdapterEvidenceError(task_id)
+    # A human approval is itself the result evidence. complete_task records the
     # durable _REVIEW_APPROVED_NOTE on both the run and completion event.
     if row["status"] == "review":
         return
@@ -57,11 +72,3 @@ def gate_completion_evidence(
                 "summary_preview": kb._first_line(summary, 200) or None,
             })
         raise EmptyCompletionError(task_id)
-    if requires_real_adapter(row["completion_contract"]) and not _REAL_ADAPTER_MARKER.search(
-        str(result)
-    ):
-        with kb.write_txn(conn):
-            kb._append_event(conn, task_id, "completion_blocked_real_adapter", {
-                "result_preview": kb._first_line(result, 200) or None,
-            })
-        raise RealAdapterEvidenceError(task_id)

@@ -141,6 +141,7 @@ def test_same_card_review_supports_changes_and_approval_without_block_loop(conn)
     assert kb.complete_task(
         conn,
         task_id,
+        result="Approved after independent verification.",
         summary="Approved after independent verification.",
         expected_run_id=review_2.current_run_id,
     )
@@ -789,5 +790,5 @@ def test_review_transitions_preserve_consecutive_failures(conn) -> None:
             "UPDATE tasks SET consecutive_failures = 1 WHERE id = ?",
             (ok_id,),
         )
-    assert kb.complete_task(conn, ok_id, summary="done")
+    assert kb.complete_task(conn, ok_id, result="done", summary="done")
     assert _failures(conn, ok_id) == 0

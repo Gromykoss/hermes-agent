@@ -1061,6 +1061,7 @@ def test_complete_can_retry_after_phantom_rejection(kanban_home):
         with pytest.raises(kb.HallucinatedCardsError):
             kb.complete_task(
                 conn, parent_a,
+                result="oops",
                 summary="oops",
                 created_cards=["t_phantomdeadbeef"],
             )
@@ -1069,6 +1070,7 @@ def test_complete_can_retry_after_phantom_rejection(kanban_home):
         # Retry with [] (escape hatch): gate is skipped, completion lands.
         ok = kb.complete_task(
             conn, parent_a,
+            result="retry without claims",
             summary="retry without claims",
             created_cards=[],
         )
@@ -1080,6 +1082,7 @@ def test_complete_can_retry_after_phantom_rejection(kanban_home):
         with pytest.raises(kb.HallucinatedCardsError):
             kb.complete_task(
                 conn, parent_b,
+                result="oops",
                 summary="oops",
                 created_cards=[real, "t_anotherphantom"],
             )
@@ -1087,6 +1090,7 @@ def test_complete_can_retry_after_phantom_rejection(kanban_home):
 
         ok = kb.complete_task(
             conn, parent_b,
+            result="retry with corrected list",
             summary="retry with corrected list",
             created_cards=[real],
         )
