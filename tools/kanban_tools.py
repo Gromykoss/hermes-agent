@@ -737,7 +737,7 @@ def _handle_complete(args: dict, **kw) -> str:
     artifacts = _coerce_str_list(args.get("artifacts"), "artifacts", "file paths", strip=True)
     if artifacts:
         metadata = _merge_artifacts(metadata, artifacts)
-    _check(summary or result, "provide at least one of: summary (preferred), result")
+    _check(result, "provide result evidence")
     _require_dict_metadata(metadata)
     metadata = _stamp_worker_session_metadata(tid, metadata)
     with _board(args.get("board")) as (kb, conn):
@@ -777,12 +777,12 @@ def _handle_complete(args: dict, **kw) -> str:
                 f"in-flight (no state change). Retry kanban_complete with the same "
                 f"summary/metadata and either drop these ids from created_cards, or pass "
                 f"created_cards=[] to skip the card-claim check entirely.")
-        except kb.EmptyCompletionError as empty_err:
+        except (kb.EmptyCompletionError, kb.RealAdapterEvidenceError) as empty_err:
             # Same shape as the card gate: nothing was mutated, the audit event
             # already landed; the worker retries with evidence instead of stalling.
             return tool_error(
                 f"kanban_complete blocked: {empty_err}. Your task is still in-flight (no state "
-                f"change). Retry kanban_complete with a non-empty summary or result describing "
+                f"change). Retry kanban_complete with a non-empty result describing "
                 f"what was done.")
         task = kb.get_task(conn, tid)
         if not ok:

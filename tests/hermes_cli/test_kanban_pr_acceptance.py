@@ -101,11 +101,12 @@ def test_pr_completion_requires_current_required_evidence(github):
             github.pop(fault)
         # Omission and a sibling repository cannot downgrade the stored declaration.
         tid = kb.create_task(conn, title="publish", completion_contract="acme/repo")
-        assert not kb.complete_task(conn, tid, summary="local green")
+        with pytest.raises(kb.EmptyCompletionError):
+            kb.complete_task(conn, tid, summary="local green")
         assert not kb.complete_task(conn, tid, result="done", metadata={"published_pr": "https://github.com/other/repo/pull/7"})
         before = len(github["requests"])
         local = kb.create_task(conn, title="local", completion_contract="local-only")
-        assert kb.complete_task(conn, local, summary="https://github.com/acme/repo/pull/7 is background context")
+        assert kb.complete_task(conn, local, result="https://github.com/acme/repo/pull/7 is background context")
         assert len(github["requests"]) == before
 
 

@@ -81,10 +81,12 @@ def _activate_root_inline(
     would run while the outer txn can still roll back). The caller runs
     ``recompute_ready`` after the outer commit.
     """
+    kb.gate_completion_evidence(conn, root_id, result=summary, summary=summary)
     cur = conn.execute(
         """
         UPDATE tasks
            SET status       = 'done',
+               result       = ?,
                completed_at = ?,
                claim_lock   = NULL,
                claim_expires= NULL,
@@ -92,13 +94,14 @@ def _activate_root_inline(
          WHERE id = ?
            AND status = 'blocked'
         """,
-        (int(time.time()), root_id),
+        (summary, int(time.time()), root_id),
     )
     if cur.rowcount != 1:
         return False
     run_id = kb._synthesize_ended_run(conn, root_id, outcome="completed", summary=summary, metadata=metadata)
     kb._append_event(
-        conn, root_id, "completed", {"result_len": 0, "summary": summary[:400] or None}, run_id=run_id,
+        conn, root_id, "completed",
+        {"result_len": len(summary), "summary": summary[:400] or None}, run_id=run_id,
     )
     return True
 

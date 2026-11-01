@@ -18,11 +18,18 @@ from urllib.parse import quote
 
 _REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 _PR = re.compile(r"https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([1-9][0-9]*)")
+_REAL_ADAPTER_CONTRACT = re.compile(r"(?m)^\s*require_real_adapter\s*:\s*true\s*$", re.IGNORECASE)
+
+
+def requires_real_adapter(value: str | None) -> bool:
+    return isinstance(value, str) and _REAL_ADAPTER_CONTRACT.search(value) is not None
 
 
 def validate_contract(value: str | None) -> str:
     if value is None or value == "local-only":
         return "local-only"
+    if requires_real_adapter(value):
+        return value
     if not isinstance(value, str) or not (_REPO.fullmatch(value) or _PR.fullmatch(value)):
         raise ValueError("completion_contract must be local-only, OWNER/REPO, or an exact GitHub PR URL")
     return value

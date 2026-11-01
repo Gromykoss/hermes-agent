@@ -60,18 +60,37 @@ def test_whitespace_stored_result_does_not_count(conn):
     assert conn.execute("SELECT status FROM tasks WHERE id = ?", (tid,)).fetchone()["status"] == "done"
 
 
-def test_review_approval_exempt(conn):
+def test_review_approval_without_result_is_exempt(conn):
+    # Spec-claimed exemption (P1-SPEC, verdict fix-round): a human approval
+    # completing a card from ``review`` is itself the evidence. Completing
+    # without a result succeeds and records the durable _REVIEW_APPROVED_NOTE
+    # on the run/event; the empty-result gate stays strict for every other
+    # source status (the fake-closure class this gate exists for).
     tid = kb.create_task(conn, title="review-me", assignee="coder")
     assert kb.claim_task(conn, tid, claimer=kb._claimer_id()) is not None
     assert kb.request_review(conn, tid, summary="please look") is True
     assert kb.get_task(conn, tid).status == "review"
     assert kb.complete_task(conn, tid) is True
     assert kb.get_task(conn, tid).status == "done"
+    last = conn.execute(
+        "SELECT payload FROM task_events WHERE task_id = ? ORDER BY id DESC LIMIT 1",
+        (tid,),
+    ).fetchone()
+    assert kb._REVIEW_APPROVED_NOTE in (last["payload"] or "")
+
+
+def test_review_approval_with_result_records_result(conn):
+    tid = kb.create_task(conn, title="review-me-2", assignee="coder")
+    assert kb.claim_task(conn, tid, claimer=kb._claimer_id()) is not None
+    assert kb.request_review(conn, tid, summary="please look") is True
+    assert kb.complete_task(conn, tid, result="review approved") is True
+    assert kb.get_task(conn, tid).status == "done"
+    assert kb.get_task(conn, tid).result == "review approved"
 
 
 def test_reject_then_succeed(conn):
     tid = _ready_task(conn)
     with pytest.raises(kb.EmptyCompletionError):
         kb.complete_task(conn, tid, summary="   ")
-    assert kb.complete_task(conn, tid, summary="fixed empty complete") is True
+    assert kb.complete_task(conn, tid, result="fixed empty complete") is True
     assert conn.execute("SELECT status FROM tasks WHERE id = ?", (tid,)).fetchone()["status"] == "done"

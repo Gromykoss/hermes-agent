@@ -599,7 +599,7 @@ def test_active_pr_guard_lifts_for_implementer_after_changes_requested(
 
         done_id = kb.create_task(conn, title="recent success", assignee="dev")
         kb.claim_task(conn, done_id)
-        assert kb.complete_task(conn, done_id, summary="done") is True
+        assert kb.complete_task(conn, done_id, result="done", summary="done") is True
         with kb.write_txn(conn):
             conn.execute("UPDATE tasks SET status = 'ready' WHERE id = ?", (done_id,))
         assert kbd.check_respawn_guard(conn, done_id) == "recent_success"
@@ -816,7 +816,7 @@ def test_review_cycle_end_to_end(kanban_home: Path) -> None:
         assert kb.get_task(conn, tid).status == "review"
 
         # Human approves.
-        assert kb.complete_task(conn, tid, summary="approved") is True
+        assert kb.complete_task(conn, tid, result="approved", summary="approved") is True
         row = _row(conn, tid)
         assert row["status"] == "done"
         assert (row["block_recurrences"] or 0) == 0
