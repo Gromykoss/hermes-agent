@@ -298,18 +298,18 @@ def test_spec_hash_hex_tail_balanced_mixed_pass(tmp_path):
     assert main([str(path)]) == 0
 
 
-def test_spec_hash_63_hex_head_rejected(tmp_path):
-    """~64-hex голова (типо-blob) не проходит Form B (гекс-гвард)."""
+def test_spec_hash_63_hex_head_as_form_b_passes(tmp_path):
+    """Без гекс-гварда (RC b7090538): near-hex строка = форма Б по букве спеки."""
     path = _write_json(
         tmp_path / "one.md", "review-t4",
         extra={"spec_hash": "sha256:" + "c" * 63 + " x"},
     )
-    assert main([str(path)]) == 1
+    assert main([str(path)]) == 0
 
 
-def test_spec_hash_65_hex_head_rejected(tmp_path):
+def test_spec_hash_65_hex_head_as_form_b_passes(tmp_path):
     path = _write_json(
         tmp_path / "one.md", "review-t5",
         extra={"spec_hash": "sha256:" + "c" * 64 + "d"},
     )
-    assert main([str(path)]) == 1
+    assert main([str(path)]) == 0

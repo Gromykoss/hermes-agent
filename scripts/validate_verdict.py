@@ -126,14 +126,10 @@ def _valid_spec_hash(value: object) -> bool:
         # Form A: plain 64-hex (no annotation) — canonical preferred form.
         if re.fullmatch(r"[0-9a-fA-F]{64}", rest):
             return True
-        # Hex-head forms (A with annotation/tail) REQUIRE exactly 64 hex
-        # chars. A rest made of ~64 hex chars (±few) — with or without a
-        # tail — is a blob-typo, not a legacy description: reject it.
-        m_hex = re.match(r"([0-9a-fA-F]{50,})((?:\s|[^0-9a-fA-F]).*)?\Z", rest, re.DOTALL)
-        if m_hex:
-            return False
         # Form B / descriptive: reject empty / whitespace-only after the
-        # prefix; cap legacy length.
+        # prefix; cap legacy length. (No hex-guard: per WP3 Form B is any
+        # non-empty single-line text; a near-64-hex string is accepted as
+        # legacy text — corpus has 0 such cases, spec and code agree.)
         if not bool(re.search(r"[^\s()]", rest)) or len(rest) > _SPEC_HASH_B_MAX:
             return False
         return True
