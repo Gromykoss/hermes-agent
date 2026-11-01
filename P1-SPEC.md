@@ -24,18 +24,30 @@ Merge-цель: ветка деплой-копии hermes-agent, отпочко�
 2. Real-adapter gate: если completion-contract карточки содержит require_real_adapter: true — переход в done ДОПУСТИМ только если result содержит строку-маркер `real-adapter: <suite> <N passed>` (регэксп, >=1 passed, без обрезки по краям). Иначе отказ с внятной ошибкой; инструментальный путь ловит и RealAdapterEvidenceError.
 3. Тесты: (а) close без result → отказ (worker-путь); (б) contract require_real_adapter + result без маркера → отказ; (в) с маркером → ок.
 
-### Fix-round решение по review-аппрувам (вердикт 2026-10-31, blocker-2)
-Exemption как заявлено: завершение карточки из статуса `review` без result ДОПУСТИМО —
-человеческое одобрение само является evidence; при этом durably пишется
+### Fix-round решение по review-аппрувам (вердикт 2026-10-31, blocker-2; уточнено владельцем 01.11 — вариант б)
+Exemption ограничен: завершение карточки из статуса `review` освобождает ТОЛЬКО от
+правила непустого `result` (человеческое одобрение — само evidence; durably пишется
 `_REVIEW_APPROVED_NOTE` ("Review approved without additional evidence.") на run и
-событие completed (аудируемо). Для всех остальных source-status инвариант строгий:
-пустой/пробельный result → EmptyCompletionError. Тесты: review-approval без result →
-done с нотой; review-approval с result → в result записан переданный текст;
-пустой close вне review → отказ.
+событие completed, аудируемо). Маркер real-adapter ОБЯЗАТЕЛЕН для любого перехода
+в done, включая закрытие из `review`: карточка с `require_real_adapter` не может
+быть одобрена из review без строки-маркера в result. Для всех остальных
+source-status инвариант строгий: пустой/пробельный result → EmptyCompletionError.
+Тесты: review-approval без result → done с нотой; review-approval с result → в
+result записан переданный текст; review-закрытие require_real_adapter без маркера →
+отказ (RealAdapterEvidenceError), с маркером → done; пустой close вне review → отказ.
 
 ## WP3 — Валидатор вердиктов (неизменяемая запись с head SHA)
 
-Канон вердиктов: файл в отдельном repo fleet-reviews, формат: первая строка `STATUS: PASS|REQUEST-CHANGES|REVOKE`, далее review_id, card, base_sha, head_sha (40-hex), evidence-блок. Новый вердикт по той же карте+head отзывает старый (поле `supersedes: <review_id>`).
+Канон вердиктов: файл в отдельном repo fleet-reviews. Поддерживаются оба формата:
+(1) фактический канон fleet-reviews v1.3 — JSON frontmatter между `---`-фенсами
+(status ok|issues|incomplete, reviewed_range{base,head 40-hex}, spec_hash,
+evidence, findings[], notes[], escalations[]; карточка = имя каталога
+reviews/<owner-repo>/, review_id = имя файла без расширения, если не задан явно);
+(2) карточный формат фабрики — первая строка `STATUS: PASS|REQUEST-CHANGES|REVOKE`,
+далее review_id, card, base_sha, head_sha (40-hex), evidence-блок. Новая
+информация: `supersedes: <review_id>` отзывает старый вердикт той же карты+head;
+самоссылка (A→A), взаимный цикл (A↔B) и неизвестные ключи (в т.ч. опечатка
+`supersede:`) — ошибка выхода 1.
 Задачи:
 1. Скрипт scripts/validate_verdict.py (argparse, stdlib): проверяет md-файл(ы) — обязательные поля, формат SHA, уникальность review_id, при двух активных вердиктах на одну карту+head без supersedes у нового → ошибка выхода 1.
 2. Юнит-тест: валидный вердикт ок; без head_sha → ошибка; дубль без supersedes → ошибка; дубль с supersedes → ок.
