@@ -83,15 +83,11 @@ def _validate_findings(payload: dict) -> None:
             raise ValueError(f"findings[{index}].line must be an integer")
 
 
-# Form A (preferred): sha256:<64 hex> with optional parenthetical annotation.
-# Annotation: arbitrary non-empty single-line text inside parens; nested
-# parens allowed (real canon corpus uses e.g. "(blob ..., gate (...))").
-_SPEC_HASH_A_RE = re.compile(
-    r"sha256:[0-9a-fA-F]{64}(?:\s+\(([^()]|\([^()]*\))*\))?\Z"
-)
-# Form A extension: 64-hex head followed by a free single-line descriptive
-# tail (real canon corpus: "(algo …); срез-пакет tar-sha256 …").
-_SPEC_HASH_A_HEX_TAIL_RE = re.compile(r"sha256:[0-9a-fA-F]{64}\s.+\Z")
+# Form A (preferred): sha256:<64 hex> with optional single-line annotation
+# of balanced parens (any nesting depth), optionally followed by a
+# descriptive tail with balanced parens too (real canon corpus:
+# "(algo …); срез-пакет tar-sha256 …").
+_SPEC_HASH_A_RE = re.compile(r"sha256:[0-9a-fA-F]{64}\s.+\Z")
 # Form B (legacy): sha256:<non-empty single-line text>, ≤200 chars after prefix.
 _SPEC_HASH_PREFIX = "sha256:"
 _SPEC_HASH_B_MAX = 200
@@ -110,28 +106,35 @@ def _valid_spec_hash(value: object) -> bool:
         return True
     m = _SPEC_HASH_A_RE.fullmatch(text)
     if m:
-        # Annotation (if present) must carry a real character: rejects "()",
-        # "(( ))", whitespace-only, and any newline smuggled into the parens.
+        # Tail after the 64-hex head: must carry a real character, have
+        # balanced parens overall (unbalanced "(", ")" → rejected — covers
+        # nested parens of any depth AND the old flat-only regex), ≤500.
         tail = text[len("sha256:") + 64:]
-        if not tail:
-            return True  # plain sha256:<64 hex> without annotation
-        inner = tail.strip()[1:-1]  # strip the outer parens
-        return bool(re.search(r"[^\s()]", inner)) and "\n" not in inner
-    if _SPEC_HASH_A_HEX_TAIL_RE.match(text):
-        # 64-hex head + free descriptive tail (may extend beyond the closing
-        # paren of the annotation, e.g. "(algo …); срез-пакет tar-sha256 …").
-        # Same hygiene as Form B: single-line (checked above), real char, ≤500.
-        tail = text[len("sha256:") + 64:]
-        return bool(re.search(r"[^\s()]", tail)) and len(tail) <= 500
+        if not re.search(r"[^\s()]", tail) or len(tail) > 500:
+            return False
+        depth = 0
+        for ch in tail:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            if depth < 0:
+                return False
+        return depth == 0
     if text.startswith(_SPEC_HASH_PREFIX):
         rest = text[len(_SPEC_HASH_PREFIX):]
-        # Reject empty / whitespace-only after the prefix; cap legacy length.
-        if not bool(re.search(r"[^\s()]", rest)) or len(rest) > _SPEC_HASH_B_MAX:
+        # Form A: plain 64-hex (no annotation) — canonical preferred form.
+        if re.fullmatch(r"[0-9a-fA-F]{64}", rest):
+            return True
+        # Hex-head forms (A with annotation/tail) REQUIRE exactly 64 hex
+        # chars. A rest made of ~64 hex chars (±few) — with or without a
+        # tail — is a blob-typo, not a legacy description: reject it.
+        m_hex = re.match(r"([0-9a-fA-F]{50,})((?:\s|[^0-9a-fA-F]).*)?\Z", rest, re.DOTALL)
+        if m_hex:
             return False
-        # A 64-hex head with a junk tail ("()", "(( ))", trailing spaces) is
-        # NOT Form B: the tail itself must carry a real character.
-        m_hex = re.match(r"[0-9a-fA-F]{64}(.*)\Z", rest, re.DOTALL)
-        if m_hex and not re.search(r"[^\s()]", m_hex.group(1)):
+        # Form B / descriptive: reject empty / whitespace-only after the
+        # prefix; cap legacy length.
+        if not bool(re.search(r"[^\s()]", rest)) or len(rest) > _SPEC_HASH_B_MAX:
             return False
         return True
     return False

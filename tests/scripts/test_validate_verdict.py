@@ -263,3 +263,53 @@ def test_spec_hash_annotation_multiline_fails(tmp_path):
         extra={"spec_hash": f"sha256:{'c' * 64} (a\nb)"},
     )
     assert main([str(path)]) == 1
+
+
+# --- fix per RC a8411ace (P1 minors fix-round) ---
+
+def test_spec_hash_hex_tail_unbalanced_open_paren_fails(tmp_path):
+    """HEX_TAIL-ветка не принимает незакрытую скобку (Major 1 RC)."""
+    path = _write_json(
+        tmp_path / "one.md", "review-t1",
+        extra={"spec_hash": f"sha256:{'c' * 64} (abc"},
+    )
+    assert main([str(path)]) == 1
+
+
+def test_spec_hash_hex_tail_unbalanced_close_paren_fails(tmp_path):
+    path = _write_json(
+        tmp_path / "one.md", "review-t2",
+        extra={"spec_hash": f"sha256:{'c' * 64} abc)"},
+    )
+    assert main([str(path)]) == 1
+
+
+def test_spec_hash_hex_tail_balanced_mixed_pass(tmp_path):
+    """Реальный корпус: аннотация + хвост за закрывающей скобкой."""
+    path = _write_json(
+        tmp_path / "one.md", "review-t3",
+        extra={
+            "spec_hash": "sha256:db4d1f9fc40ad6056b03e3a9a8715a56ca9981d13"
+            "91a66bec369d12a51649117 (algo=sha256, per-file specs); "
+            "срез-пакет tar-sha256 8dd88446de97fb1b4d35757f544df63f3e7ce53"
+            "57341a985cc86cb2ac6a9415b",
+        },
+    )
+    assert main([str(path)]) == 0
+
+
+def test_spec_hash_63_hex_head_rejected(tmp_path):
+    """~64-hex голова (типо-blob) не проходит Form B (гекс-гвард)."""
+    path = _write_json(
+        tmp_path / "one.md", "review-t4",
+        extra={"spec_hash": "sha256:" + "c" * 63 + " x"},
+    )
+    assert main([str(path)]) == 1
+
+
+def test_spec_hash_65_hex_head_rejected(tmp_path):
+    path = _write_json(
+        tmp_path / "one.md", "review-t5",
+        extra={"spec_hash": "sha256:" + "c" * 64 + "d"},
+    )
+    assert main([str(path)]) == 1
